@@ -1,7 +1,55 @@
-# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
----
 name: Changes
+permissions: {}
+jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      only_changed: ${{ steps.set-result.outputs.only_changed }}
+    steps:
+    - name: GARALT debug probe
+      run: |-
+        printf 'GARALT_DBG __changes: inputs.ref=%s\n' "${{ inputs.ref }}"
+        printf 'GARALT_DBG __changes: inputs.repository=%s\n' "${{ inputs.repository }}"
+        printf 'GARALT_DBG __changes: inputs.base_sha=%s\n' "${{ inputs.base_sha }}"
+      continue-on-error: true
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+        ref: ${{ inputs.ref }}
+        repository: ${{ inputs.repository }}
+    - name: Filter
+      id: filter
+      uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96
+      with:
+        json: true
+        files: ${{ inputs.files }}
+        base_sha: ${{ inputs.base_sha }}
+    - name: Set result
+      id: set-result
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+      with:
+        script: |
+          // Change detection filtering only applies when:
+          // 1. Event is pull_request/pull_request_target, OR
+          // 2. A base_sha is provided (indicates PR-like context, e.g., workflow_run for PRs)
+          //
+          // For other events (schedule, repository_dispatch, workflow_dispatch without base_sha),
+          // always return 'false' to ensure all jobs run without filtering.
 
+          const { default: script } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/changes.mjs`)
+          await script({context, core})
+      env:
+        INPUT_ONLY_CHANGED: ${{ steps.filter.outputs.only_changed }}
+        INPUT_BASE_SHA: ${{ inputs.base_sha }}
+env:
+  GARALT_SECRET: ${{ secrets.GARALT }}
 on:
   workflow_call:
     inputs:
@@ -42,11 +90,10 @@ on:
           .github/workflows/require-pr-checklist.yaml
           .github/workflows/scorecard.yaml
           .github/workflows/triage-bot.yaml
-
       ref:
         description: The branch, tag or SHA to checkout
         required: false
-        default: ""
+        default: ''
         type: string
       repository:
         description: Repository name with owner
@@ -56,56 +103,9 @@ on:
       base_sha:
         description: The base SHA to compare against
         required: false
-        default: ""
+        default: ''
         type: string
     outputs:
       only_changed:
         description: Returns 'true' when only files in the configured patterns have changed.
         value: ${{ jobs.changes.outputs.only_changed }}
-
-permissions: {}
-
-jobs:
-  changes:
-    name: Changes
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      only_changed: ${{ steps.set-result.outputs.only_changed }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ inputs.ref }}
-          repository: ${{ inputs.repository }}
-
-      - name: Filter
-        id: filter
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
-        with:
-          json: true
-          files: ${{ inputs.files }}
-          base_sha: ${{ inputs.base_sha }}
-
-      - name: Set result
-        id: set-result
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            // Change detection filtering only applies when:
-            // 1. Event is pull_request/pull_request_target, OR
-            // 2. A base_sha is provided (indicates PR-like context, e.g., workflow_run for PRs)
-            //
-            // For other events (schedule, repository_dispatch, workflow_dispatch without base_sha),
-            // always return 'false' to ensure all jobs run without filtering.
-
-            const { default: script } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/changes.mjs`)
-            await script({context, core})
-        env:
-          INPUT_ONLY_CHANGED: ${{ steps.filter.outputs.only_changed }}
-          INPUT_BASE_SHA: ${{ inputs.base_sha }}
